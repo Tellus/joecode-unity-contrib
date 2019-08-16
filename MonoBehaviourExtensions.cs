@@ -58,5 +58,17 @@ namespace JoeCode.Extensions
 
             return megaBound;
         }
+
+        /// <summary>
+        /// Returns true if a <typeparamref name="T"/> component is present.
+        /// Simply a shorthand for checking a null return value from
+        /// GetComponent.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        public static bool HasComponent<T>(this Component obj) => obj.GetComponent<T>() != null;
+
+        public static bool HasComponentInChildren<T>(this Component obj) => obj.GetComponentInChildren<T>(true) != null;
     }
 }

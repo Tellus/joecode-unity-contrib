@@ -6,55 +6,10 @@ using UnityEngine;
 
 namespace JoeCode
 {
+    public delegate Vector2 GraphFunction2DCallable(float x);
+
     public static class MathUtil
     {
-        public class QuadraticFunction
-    {
-        private float componentA;
-        public float ComponentA {
-            get => componentA;
-            set {
-                componentA = value;
-                UpdateFunction();
-            }
-        }
-
-        private float componentB;
-        public float ComponentB {
-            get => componentB;
-            set {
-                componentB = value;
-                UpdateFunction();
-            }
-        }
-        private float constant;
-        public float Constant {
-            get => Constant;
-            set {
-                Constant = value;
-                UpdateFunction();
-            }
-        }
-
-        protected void UpdateFunction()
-        {
-            Function = (x) => new Vector3(x, this.ComponentA * x * x + this.ComponentB * x + this.Constant);
-        }
-
-        protected Func<float, Vector3> Function;
-
-        public QuadraticFunction(float componentA = 1, float componentB = 0, float constant = 0)
-        {
-            this.ComponentA = componentA;
-            this.ComponentB = componentB;
-            this.Constant = constant;
-
-            UpdateFunction();
-        }
-
-        public Vector3 Call(float x) => this.Function(x);
-    }
-
         /// <summary>
         /// Derives the quadratic function that passes through the three points
         /// given and returns it as a callable.
@@ -63,29 +18,27 @@ namespace JoeCode
         /// <param name="p2"></param>
         /// <param name="p3"></param>
         /// <remarks>Note that the function returned only works along TWO axes!</remarks>
-        public static Func<float, Vector2> DeriveQuadratic(Vector2 pt1, Vector2 pt2, Vector2 pt3)
+        public static GraphFunction2DCallable DeriveQuadratic(Vector2 pt1, Vector2 pt2, Vector2 pt3)
         {
-            // Sort them in x order.
-            IList<Vector3> points = new List<Vector3>();
-            points.Add(pt1);
-            points.Add(pt2);
-            points.Add(pt3);
-
-            points = points.OrderBy((p) => p.x).ToList();
-
-            Vector3 p1 = points[0];
-            Vector3 p2 = points[1];
-            Vector3 p3 = points[2];
+            if (pt1.x == pt2.x || pt1.x == pt3.x || pt2.x == pt3.x)
+                throw new ArgumentException("Two points CANNOT share the same x position.");
 
             // I've added these variables just to improve readability of the formula.
-            float x1 = p1.x, x2 = p2.x, x3 = p3.x, y1 = p1.y, y2 = p2.y, y3 = p3.y;
+            float x1 = pt1.x, x2 = pt2.x, x3 = pt3.x, y1 = pt1.y, y2 = pt2.y, y3 = pt3.y;
 
             // Formula shamelessly ripped from https://www.uvmat.dk/jr/mathpub/TrePktParabel.htm
+            float div1 = (x1 - x2) * (x1 - x3);
+            float div2 = (x2 - x1) * (x2 - x3);
+            float div3 = (x3 - x1) * (x3 - x2);
+
+            if (div1 == 0 || div2 == 0 || div3 == 0)
+                throw new DivideByZeroException("One of the divisors would become 0. Are all the points present on the intended curve?");
+
             return (x) => new Vector2(
                 x,
-                -(((x - x2) * (x - x3)) / ((x1 - x2) * (x1 - x3))) * y1
-                     + (((x - x1) * (x - x3)) / ((x2 - x1) * (x2 - x3))) * y2
-                     + (((x - x1) * (x - x2)) / ((x3 - x1) * (x3 - x2))) * y3
+                (((x - x2) * (x - x3)) / div1) * y1
+                 + (((x - x1) * (x - x3)) / div2) * y2
+                 + (((x - x1) * (x - x2)) / div3) * y3
             );
         }
 
@@ -99,36 +52,105 @@ namespace JoeCode
         /// <param name="p2">Right-most point.</param>
         /// <param name="apexHeight"></param>
         /// <remarks>Note that the function returned only works along TWO axes!</remarks>
-        public static Func<float, Vector2> DeriveQuadratic(Vector2 pt1, Vector2 pt2, float apexHeight = 0)
+        public static GraphFunction2DCallable DeriveQuadratic(Vector2 pt1, Vector2 pt2, float apexHeight = 0)
         {
-            if (apexHeight < 0)
-            {
-                Debug.LogWarning("DeriveQuadratic: apexHeight is negative! Using absolute value.");
-                apexHeight = Mathf.Abs(apexHeight);
-            }
+            float pivotHeight;
 
-            // Ensure point 1 is to the left of point 2.
-            if (pt1.x > pt2.x)
-            {
-                Debug.Log("Point 1 is to the right of Point 2. Swapping.");
-                // swap.
-                var tmp = pt1;
-                pt1 = pt2;
-                pt2 = tmp;
-            }
+            if (apexHeight > 0) pivotHeight = Mathf.Max(pt1.y, pt2.y) + Mathf.Abs(apexHeight);
+            else if (apexHeight < 0) pivotHeight = Mathf.Min(pt1.y, pt2.y) - Mathf.Abs(apexHeight);
+            else throw new ArgumentOutOfRangeException("apexHeight cannot be 0!");
 
-            Vector2 pivot;
+            Vector2 leftMost = pt1.x < pt2.x ? pt1 : pt2;
 
-            if (apexHeight == 0) // If no apex height, use point 2 as pivot and mirror pt1 around it.
-            {
-                pivot = pt2;
-                pt2 = new Vector2(pt2.x + (pt2.x - pt1.x), pt1.y);
-            } else // Otherwise, add point midway between pt1 and pt2 that is apexHeight farther up than the higher of the two..
-            {
-                pivot = new Vector2(pt1.x + Mathf.Abs(pt2.x - pt1.x) / 2, Mathf.Max(pt1.y, pt2.y) + apexHeight);
-            }
+            Vector2 pivot = new Vector2(leftMost.x + Mathf.Abs(pt1.x - pt2.x) / 2, apexHeight);
 
             return DeriveQuadratic(pt1, pivot, pt2);
+        }
+
+        /// <summary>
+        /// Returns the vector that is farthest to the left along the x axis.
+        /// It's just a shorthand for the ternary operator but makes code
+        /// easier to read.
+        /// </summary>
+        /// <param name="a"></param>
+        /// <param name="b"></param>
+        /// <returns></returns>
+        public static Vector3 LeftMost(Vector3 a, Vector3 b) => a.x < b.x ? a : b;
+
+        /// <summary>
+        /// Returns the vector that is farthest to the left along the x axis.
+        /// It's just a shorthand for the ternary operator but makes code
+        /// easier to read.
+        /// </summary>
+        /// <param name="a"></param>
+        /// <param name="b"></param>
+        /// <returns></returns>
+        public static Vector2 LeftMost(Vector2 a, Vector2 b) => a.x < b.x ? a : b;
+
+        /// <summary>
+        /// Returns the vector that is farthest to the left along the x axis.
+        /// It's just a shorthand for the ternary operator but makes code
+        /// easier to read.
+        /// </summary>
+        /// <param name="a"></param>
+        /// <param name="b"></param>
+        /// <returns></returns>
+        public static Vector3 RightMost(Vector3 a, Vector3 b) => a.x > b.x ? a : b;
+
+        /// <summary>
+        /// Returns the vector that is farthest to the left along the x axis.
+        /// It's just a shorthand for the ternary operator but makes code
+        /// easier to read.
+        /// </summary>
+        /// <param name="a"></param>
+        /// <param name="b"></param>
+        /// <returns></returns>
+        public static Vector2 RightMost(Vector2 a, Vector2 b) => a.x > b.x ? a : b;
+    }
+
+    public abstract class GraphFunction2D
+    {
+        public Vector2 Get(float x) => function(x);
+
+        public GraphFunction2DCallable function {
+            get; private set;
+        }
+
+        protected GraphFunction2D(GraphFunction2DCallable fn)
+        {
+            function = fn;
+        }
+
+        public void DrawDebugLines(Vector3 startPoint, Vector3 endPoint, Color color, int stepCount = 10) => DrawDebugLines(startPoint.x, endPoint.x, color, stepCount);
+
+        public void DrawDebugLines(float from, float to, Color color, int stepCount = 10)
+        {
+            float leftMost = from < to ? from : to;
+
+            float stepSize = Mathf.Abs(from - to) / stepCount;
+
+            for (int i = 0; i < stepCount; i++)
+            {
+                Debug.DrawLine(Get(leftMost + stepSize * i), Get(leftMost + stepSize * (i + 1)), color);
+            }
+        }
+
+        public void DrawDebugLines(Vector3 startPoint, Vector3 endPoint) => DrawDebugLines(startPoint, endPoint, Color.red);
+    }
+
+    public class QuadraticFunction : GraphFunction2D
+    {
+        public readonly List<Vector2> sourcePoints = new List<Vector2>();
+
+        public QuadraticFunction(Vector2 pt1, Vector2 pt2, Vector2 pt3) : base(MathUtil.DeriveQuadratic(pt1, pt2, pt3)) {
+            sourcePoints.Add(pt1);
+            sourcePoints.Add(pt2);
+            sourcePoints.Add(pt3);
+        }
+
+        public QuadraticFunction(Vector2 pt1, Vector2 pt2, float apexHeight) : base(MathUtil.DeriveQuadratic(pt1, pt2, apexHeight)) {
+            sourcePoints.Add(pt1);
+            sourcePoints.Add(pt2);
         }
     }
 }
